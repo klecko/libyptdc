@@ -1,5 +1,7 @@
 pub const std = @import("std");
 pub const builtin = @import("builtin");
+pub const expect = std.testing.expect;
+pub const shl = std.math.shl;
 pub const c = @cImport({
     @cInclude("capstone/capstone.h");
 });
@@ -12,4 +14,8 @@ pub fn assert(check: bool, comptime fmt: []const u8, args: anytype) void {
         std.debug.print("\n\n" ++ WHITE ++ fmt ++ RESET ++ "\n\n", args);
         unreachable;
     }
+}
+
+pub fn test_ok() void {
+    std.debug.print("OK\n", .{});
 }

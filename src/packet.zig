@@ -40,6 +40,49 @@ pub fn getPacketType(packet: []const u8) PacketType {
     return t;
 }
 
+pub fn getPayloadLengthIP(header: u8) u8 {
+    return switch (header >> 5) {
+        0b000 => 0,
+        0b001 => 2,
+        0b010 => 4,
+        0b011, 0b100 => 6,
+        0b110 => 8,
+        else => unreachable
+    };
+}
+
+pub fn getIP(data: []const u8, last_ip: u64) ?u64 {
+    const payload = data[1..1+getPayloadLengthIP(data[0])];
+    if (payload.len == 0)
+        return null;
+    var result: u64 = 0;
+    if (data[0] >> 5 == 0b011) {
+        // Doesn't depend on last IP
+        assert(payload.len == 6, "sign_extend with payload length {}", .{payload.len});
+        var tmp: i48 = 0;
+        std.mem.copy(u8, @ptrCast(*[8]u8, &tmp), payload);
+        // sign extend from i48 to i64, and cast back to u64
+        result = @bitCast(u64, @intCast(i64, tmp));
+    } else {
+        const length_bits = payload.len * 8;
+        const mask_last_ip = shl(u64, shl(u64, 1, 64 - length_bits) - 1, length_bits);
+        result = last_ip & mask_last_ip;
+        std.mem.copy(u8, @ptrCast(*[8]u8, &result), payload);
+    }
+    return result;
+}
+
+pub const MODEType = enum(u3) {
+    Exec = 0b000,
+    TSX = 0b001,
+};
+
+pub const MODEExecAddressingMode = enum(u2) {
+    Mode64 = 0b01,
+    Mode32 = 0b10,
+    Mode16 = 0b00,
+};
+
 const packetTable1: [256]PacketType = initPacketTable1();
 const packetTable2: [256]PacketType = initPacketTable2();
 
@@ -89,9 +132,33 @@ fn initPacketTable2() [256]PacketType {
 }
 
 
-test "packet" {
-    std.debug.print("{}\n", .{ PacketType.TNT.length() });
+test "single FUP" {
+    const packet = "\x7d\xd0\x2a\x40\x00\x00\x00";
+    expect(getPacketType(packet) == .FUP);
+    const ip = getIP(packet, 0x00) orelse unreachable;
+    expect(ip == 0x402ad0);
+    test_ok();
+}
 
-    var a = getPacketType("\x71\x01\xf4\x00\x00");
-    std.debug.print("{}\n", .{ a.length() });
+test "IP compression" {
+    const packet = "\x2d\x0c\xf4";
+    expect(getPacketType(packet) == .TIP);
+    const ip = getIP(packet, 0x48f401) orelse unreachable;
+    expect(ip == 0x48f40c);
+    test_ok();
+}
+
+test "IP compression signextend" {
+    // Positive signextend
+    const packet1 = "\x71\x01\xf4\x48\x00\x00\x00";
+    expect(getPacketType(packet1) == .TIP_PGE);
+    const ip1 = getIP(packet1, 0) orelse unreachable;
+    expect(ip1 == 0x48f401);
+
+    // Negative signextend
+    const packet2 = "\x61\x60\x2c\x02\xa3\xff\xff";
+    expect(getPacketType(packet2) == .TIP_PGD);
+    const ip2 = getIP(packet2, 0) orelse unreachable;
+    expect(ip2 == 0xffffffffa3022c60);
+    test_ok();
 }

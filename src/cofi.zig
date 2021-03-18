@@ -21,5 +21,5 @@ pub const Type = enum {
 
 test "cofi" {
     var a = ConditionalBranchOpcodes[0];
-    std.debug.print("cofi test\n", .{});
+    test_ok();
 }
